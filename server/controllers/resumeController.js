@@ -23,7 +23,10 @@ exports.uploadResume = async (req, res) => {
 
     res.json(saved);
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Error" });
+    console.error("Resume upload error:", error.message);
+    const status = error.message?.includes("OPENAI") ? 503 : 500;
+    res.status(status).json({
+      message: error.message || "Resume analysis failed",
+    });
   }
 };

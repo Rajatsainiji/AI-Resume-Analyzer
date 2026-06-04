@@ -4,6 +4,8 @@ const analysisSchema = new mongoose.Schema(
   {
     userId: mongoose.Schema.Types.ObjectId,
     atsScore: Number,
+    keywordMatchScore: Number,
+    matchedKeywords: [String],
     missingKeywords: [String],
     suggestions: [String],
     summary: String,

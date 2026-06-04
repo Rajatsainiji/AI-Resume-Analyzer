@@ -149,7 +149,10 @@ export default function UploadResume() {
 
       setResult(res.data);
     } catch (error) {
-      alert("Analysis Failed");
+      const msg =
+        error.response?.data?.message ||
+        "Analysis failed. Check OpenAI API key and try again.";
+      alert(msg);
     } finally {
       setLoading(false);
     }
@@ -288,7 +291,7 @@ export default function UploadResume() {
               </h3>
 
               <p className="text-5xl font-bold mt-2">
-                {result.skillsMatch || 75}%
+                {result.keywordMatchScore ?? 0}%
               </p>
             </div>
           </div>
