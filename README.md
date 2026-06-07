@@ -1,75 +1,66 @@
 # AI Resume Analyzer + ATS Score Checker
 
-Analyze resumes against a job description and get an ATS compatibility score, missing keywords, and improvement suggestions.
+Analyze resumes with Google Gemini AI. Google login, OTP email registration, section-wise feedback, PDF preview, and resume editing.
 
-## Stack
+## Features
 
-- **Frontend:** React + Vite + Tailwind
-- **Backend:** Node.js + Express + MongoDB
-- **AI:** OpenAI API (GPT)
-
-## Get an OpenAI API key
-
-1. Sign in at [OpenAI Platform](https://platform.openai.com/).
-2. Add billing/credits under **Settings → Billing** (API usage is pay-as-you-go).
-3. Go to [API Keys](https://platform.openai.com/api-keys).
-4. Click **Create new secret key**, copy it once (it starts with `sk-`).
-5. Never commit the key to Git.
+- Google Sign-In + email/password with OTP verification
+- ATS score, keywords, spelling errors, section-wise analysis
+- Split results view: issues on left, resume PDF on right
+- Edit resume text, re-analyze, download original or edited PDF
+- Dashboard with analysis history
 
 ## Setup
 
-### 1. Backend
+### 1. Google OAuth (Login)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create a project → **Credentials** → **Create OAuth Client ID** → **Web application**
+3. Add authorized JavaScript origins: `http://localhost:5173`
+4. Copy the **Client ID**
+5. Add to `server/.env` as `GOOGLE_CLIENT_ID`
+6. Add to `client/.env` as `VITE_GOOGLE_CLIENT_ID`
+
+### 2. Gemini API (Analysis)
+
+Get a free key at [Google AI Studio](https://aistudio.google.com/apikey) → add as `GEMINI_API_KEY` in `server/.env`
+
+### 3. Email OTP (Optional)
+
+For real OTP emails, configure SMTP in `server/.env`.  
+Without SMTP, OTP is printed in the **server console** during development.
+
+### 4. Run
 
 ```bash
+# Server
 cd server
 npm install
-```
-
-Create `server/.env` from the example:
-
-```bash
-cp .env.example .env
-```
-
-Edit `server/.env` and set:
-
-| Variable | Description |
-|----------|-------------|
-| `MONGO_URI` | MongoDB connection string |
-| `JWT_SECRET` | Random string for auth tokens |
-| `OPENAI_API_KEY` | Your OpenAI secret key |
-| `OPENAI_MODEL` | Optional: `gpt-4o-mini` (default) or `gpt-4o` |
-
-Start the server:
-
-```bash
+cp .env.example .env   # edit with your keys
 npm run dev
-```
 
-Server runs at `http://localhost:5000`.
-
-### 2. Frontend
-
-```bash
+# Client
 cd client
 npm install
+cp .env.example .env   # add VITE_GOOGLE_CLIENT_ID
 npm run dev
 ```
 
-App runs at `http://localhost:5173` (or the port Vite prints).
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:5000`
 
-## How ATS scoring works
+## Registration Flow
 
-1. Resume text is extracted from PDF or DOCX.
-2. Keywords from the job description are matched locally (deterministic baseline).
-3. OpenAI scores the resume using a fixed rubric (skills, experience, achievements, structure, ATS format).
-4. Final **ATS score** blends AI score (65%) and keyword match (35%) for more stable, accurate results.
+1. User fills name, email, password → **Send Verification Code**
+2. OTP sent to email (or shown in server console in dev)
+3. User enters OTP → account created and logged in
 
-## Troubleshooting
+## Results Page
 
-| Issue | Fix |
-|-------|-----|
-| `OPENAI_API_KEY is missing` | Add key to `server/.env` and restart the server |
-| `401` / invalid API key | Create a new key; check for extra spaces in `.env` |
-| `insufficient_quota` | Add credits on OpenAI billing page |
-| Low or random scores | Paste a full job description; use PDF/DOCX with selectable text |
+After analysis from Dashboard, you are redirected to `/results/:id`:
+
+| Left panel | Right panel |
+|------------|-------------|
+| ATS scores, tabs (Overview, Keywords, Spelling, Sections, Improve) | PDF preview |
+| | Edit resume text |
+| | Download original / edited PDF |

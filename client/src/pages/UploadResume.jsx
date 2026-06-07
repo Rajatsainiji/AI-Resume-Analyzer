@@ -104,7 +104,25 @@ import {
   Target,
   AlertCircle,
   Sparkles,
+  CheckCircle2,
+  XCircle,
+  SpellCheck,
+  Layers,
+  Lightbulb,
 } from "lucide-react";
+
+const statusStyles = {
+  good: "text-green-400 bg-green-500/10 border-green-500/30",
+  needs_improvement:
+    "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
+  poor: "text-red-400 bg-red-500/10 border-red-500/30",
+  missing: "text-gray-400 bg-gray-500/10 border-gray-500/30",
+};
+
+const statusLabel = (status) =>
+  (status || "needs_improvement")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 export default function UploadResume() {
   const [file, setFile] = useState(null);
@@ -151,7 +169,7 @@ export default function UploadResume() {
     } catch (error) {
       const msg =
         error.response?.data?.message ||
-        "Analysis failed. Check OpenAI API key and try again.";
+        "Analysis failed. Check Gemini API key and try again.";
       alert(msg);
     } finally {
       setLoading(false);
@@ -296,50 +314,246 @@ export default function UploadResume() {
             </div>
           </div>
 
-          {/* KEYWORDS + SUGGESTIONS */}
+          {/* SUMMARY */}
+          {(result.summary || result.description) && (
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 mt-10">
+              <h2 className="text-2xl font-bold mb-4">
+                Analysis Overview
+              </h2>
+
+              {result.summary && (
+                <p className="text-lg text-blue-100 mb-4">
+                  {result.summary}
+                </p>
+              )}
+
+              {result.description && (
+                <p className="text-gray-300 leading-relaxed">
+                  {result.description}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* KEYWORDS */}
           <div className="grid lg:grid-cols-2 gap-8 mt-10">
-            {/* KEYWORDS */}
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
-              <h2 className="text-2xl font-bold mb-5">
+              <h2 className="text-2xl font-bold mb-5 flex items-center gap-2">
+                <XCircle className="text-red-400" size={24} />
                 Missing Keywords
               </h2>
 
               <div className="flex flex-wrap gap-3">
-                {result.missingKeywords?.map(
-                  (item) => (
+                {result.missingKeywords?.length > 0 ? (
+                  result.missingKeywords.map((item) => (
                     <span
                       key={item}
                       className="bg-red-500/10 border border-red-500/30 px-4 py-2 rounded-full"
                     >
                       {item}
                     </span>
-                  )
+                  ))
+                ) : (
+                  <p className="text-gray-400">
+                    No critical missing keywords found.
+                  </p>
                 )}
               </div>
             </div>
 
-            {/* SUGGESTIONS */}
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
-              <h2 className="text-2xl font-bold mb-5">
-                AI Suggestions
+              <h2 className="text-2xl font-bold mb-5 flex items-center gap-2">
+                <CheckCircle2 className="text-green-400" size={24} />
+                Matched Keywords
+              </h2>
+
+              <div className="flex flex-wrap gap-3">
+                {result.matchedKeywords?.length > 0 ? (
+                  result.matchedKeywords.map((item) => (
+                    <span
+                      key={item}
+                      className="bg-green-500/10 border border-green-500/30 px-4 py-2 rounded-full"
+                    >
+                      {item}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-gray-400">
+                    No keyword matches detected yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* SPELLING ERRORS */}
+          <div className="bg-white/5 border border-white/10 rounded-3xl p-6 mt-10">
+            <h2 className="text-2xl font-bold mb-5 flex items-center gap-2">
+              <SpellCheck className="text-orange-400" size={24} />
+              Spelling & Grammar Errors
+            </h2>
+
+            {result.spellingErrors?.length > 0 ? (
+              <div className="space-y-4">
+                {result.spellingErrors.map((err, index) => (
+                  <div
+                    key={index}
+                    className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-xs uppercase tracking-wide text-orange-300 bg-orange-500/20 px-2 py-1 rounded">
+                        {err.section}
+                      </span>
+                      <span className="text-red-300 line-through">
+                        {err.wrong}
+                      </span>
+                      <span className="text-gray-500">→</span>
+                      <span className="text-green-300 font-medium">
+                        {err.correct}
+                      </span>
+                    </div>
+                    {err.context && (
+                      <p className="text-gray-400 text-sm italic">
+                        "{err.context}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-400">
+                No spelling or grammar errors detected.
+              </p>
+            )}
+          </div>
+
+          {/* SECTION-WISE ANALYSIS */}
+          <div className="mt-10">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Layers className="text-cyan-400" size={24} />
+              Section-Wise Analysis
+            </h2>
+
+            <div className="grid lg:grid-cols-2 gap-6">
+              {result.sectionAnalysis?.map((section, index) => (
+                <div
+                  key={index}
+                  className="bg-white/5 border border-white/10 rounded-3xl p-6"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-xl font-bold">
+                      {section.sectionName}
+                    </h3>
+                    <span
+                      className={`text-xs px-3 py-1 rounded-full border ${
+                        statusStyles[section.status] ||
+                        statusStyles.needs_improvement
+                      }`}
+                    >
+                      {statusLabel(section.status)}
+                    </span>
+                  </div>
+
+                  <p className="text-3xl font-bold text-blue-400 mb-4">
+                    {section.score}%
+                  </p>
+
+                  {section.issues?.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-sm font-semibold text-red-300 mb-2">
+                        Problems / Mistakes
+                      </h4>
+                      <ul className="space-y-2">
+                        {section.issues.map((issue, i) => (
+                          <li
+                            key={i}
+                            className="text-gray-300 text-sm flex gap-2"
+                          >
+                            <AlertCircle
+                              size={14}
+                              className="text-red-400 mt-1 shrink-0"
+                            />
+                            {issue}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {section.suggestions?.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-green-300 mb-2">
+                        How to Improve
+                      </h4>
+                      <ul className="space-y-2">
+                        {section.suggestions.map((tip, i) => (
+                          <li
+                            key={i}
+                            className="text-gray-300 text-sm flex gap-2"
+                          >
+                            <CheckCircle2
+                              size={14}
+                              className="text-green-400 mt-1 shrink-0"
+                            />
+                            {tip}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* IMPROVEMENTS + SUGGESTIONS */}
+          <div className="grid lg:grid-cols-2 gap-8 mt-10">
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
+              <h2 className="text-2xl font-bold mb-5 flex items-center gap-2">
+                <Lightbulb className="text-yellow-400" size={24} />
+                Resume Updates to Improve ATS
               </h2>
 
               <div className="space-y-4">
-                {result.suggestions?.map(
-                  (item, index) => (
+                {result.improvements?.length > 0 ? (
+                  result.improvements.map((item, index) => (
                     <div
                       key={index}
-                      className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3"
+                      className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 flex gap-3"
                     >
-                      <AlertCircle
-                        className="text-blue-400 mt-1"
+                      <Lightbulb
+                        className="text-yellow-400 mt-1 shrink-0"
                         size={18}
                       />
-
                       <p>{item}</p>
                     </div>
-                  )
+                  ))
+                ) : (
+                  <p className="text-gray-400">
+                    No specific improvements suggested.
+                  </p>
                 )}
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
+              <h2 className="text-2xl font-bold mb-5">
+                General Suggestions
+              </h2>
+
+              <div className="space-y-4">
+                {result.suggestions?.map((item, index) => (
+                  <div
+                    key={index}
+                    className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3"
+                  >
+                    <AlertCircle
+                      className="text-blue-400 mt-1 shrink-0"
+                      size={18}
+                    />
+                    <p>{item}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

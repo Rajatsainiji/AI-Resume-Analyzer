@@ -1,23 +1,19 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import UploadResume from "./pages/UploadResume";
+import AnalysisResults from "./pages/AnalysisResults";
 import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
   return (
-    <div>
+    <div className="min-h-screen bg-[#050816]">
       <Navbar />
 
       <Routes>
         <Route path="/" element={<Login />} />
-
-        <Route
-          path="/register"
-          element={<Register />}
-        />
+        <Route path="/register" element={<Register />} />
 
         <Route
           path="/dashboard"
@@ -29,13 +25,15 @@ export default function App() {
         />
 
         <Route
-          path="/upload"
+          path="/results/:id"
           element={
             <ProtectedRoute>
-              <UploadResume />
+              <AnalysisResults />
             </ProtectedRoute>
           }
         />
+
+        <Route path="/upload" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </div>
   );

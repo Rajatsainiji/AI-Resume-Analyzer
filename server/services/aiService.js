@@ -1,4 +1,7 @@
-const OpenAI = require("openai");
+const {
+  GoogleGenerativeAI,
+  SchemaType,
+} = require("@google/generative-ai");
 
 const STOP_WORDS = new Set([
   "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
@@ -18,6 +21,83 @@ const STOP_WORDS = new Set([
   "ability", "able", "strong", "excellent", "good", "looking", "seeking",
 ]);
 
+const RESPONSE_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    atsScore: { type: SchemaType.NUMBER },
+    aiProbability: { type: SchemaType.NUMBER },
+    summary: { type: SchemaType.STRING },
+    description: { type: SchemaType.STRING },
+    missingKeywords: {
+      type: SchemaType.ARRAY,
+      items: { type: SchemaType.STRING },
+    },
+    suggestions: {
+      type: SchemaType.ARRAY,
+      items: { type: SchemaType.STRING },
+    },
+    improvements: {
+      type: SchemaType.ARRAY,
+      items: { type: SchemaType.STRING },
+    },
+    spellingErrors: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          section: { type: SchemaType.STRING },
+          wrong: { type: SchemaType.STRING },
+          correct: { type: SchemaType.STRING },
+          context: { type: SchemaType.STRING },
+        },
+        required: ["section", "wrong", "correct"],
+      },
+    },
+    sectionAnalysis: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          sectionName: { type: SchemaType.STRING },
+          score: { type: SchemaType.NUMBER },
+          status: { type: SchemaType.STRING },
+          issues: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.STRING },
+          },
+          suggestions: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.STRING },
+          },
+        },
+        required: ["sectionName", "score", "status", "issues", "suggestions"],
+      },
+    },
+  },
+  required: [
+    "atsScore",
+    "aiProbability",
+    "summary",
+    "description",
+    "missingKeywords",
+    "suggestions",
+    "improvements",
+    "spellingErrors",
+    "sectionAnalysis",
+  ],
+};
+
+const SECTION_NAMES = [
+  "Contact / Header",
+  "Professional Summary",
+  "Work Experience",
+  "Education",
+  "Skills",
+  "Projects",
+  "Certifications",
+  "Formatting & ATS Compatibility",
+];
+
 const normalizeText = (text = "") =>
   text
     .toLowerCase()
@@ -29,9 +109,8 @@ const extractTerms = (text) => {
   const normalized = normalizeText(text);
   const terms = new Set();
 
-  const phrases = normalized.match(
-    /[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/g
-  ) || [];
+  const phrases =
+    normalized.match(/[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/g) || [];
 
   for (const phrase of phrases) {
     const words = phrase.split(" ").filter(Boolean);
@@ -39,14 +118,16 @@ const extractTerms = (text) => {
       if (words[0].length >= 3 && !STOP_WORDS.has(words[0])) {
         terms.add(words[0]);
       }
-    } else if (words.every((w) => w.length >= 2 && !STOP_WORDS.has(w))) {
+    } else if (
+      words.every((w) => w.length >= 2 && !STOP_WORDS.has(w))
+    ) {
       terms.add(phrase);
     }
   }
 
-  const techTokens = normalized.match(
-    /[a-z0-9]+(?:\.[a-z0-9]+)?(?:\+{1,2})?/gi
-  ) || [];
+  const techTokens =
+    normalized.match(/[a-z0-9]+(?:\.[a-z0-9]+)?(?:\+{1,2})?/gi) ||
+    [];
 
   for (const token of techTokens) {
     const t = token.toLowerCase();
@@ -88,48 +169,55 @@ const computeKeywordMatchScore = (resumeText, jobDescription) => {
 const clamp = (value, min, max) =>
   Math.min(max, Math.max(min, value));
 
-const parseAiJson = (content) => {
-  let text = (content || "").trim();
-  text = text
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
+const toStringArray = (arr, limit = 15) =>
+  Array.isArray(arr)
+    ? arr.map(String).filter(Boolean).slice(0, limit)
+    : [];
 
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    throw new Error("AI response did not contain valid JSON");
+const normalizeSectionAnalysis = (sections) => {
+  if (!Array.isArray(sections)) {
+    return [];
   }
 
-  return JSON.parse(text.substring(start, end + 1));
+  return sections
+    .filter((s) => s && typeof s === "object")
+    .map((s) => ({
+      sectionName: String(s.sectionName || "Unknown Section"),
+      score: clamp(Number(s.score) || 0, 0, 100),
+      status: String(s.status || "needs_improvement"),
+      issues: toStringArray(s.issues, 8),
+      suggestions: toStringArray(s.suggestions, 6),
+    }))
+    .slice(0, 12);
+};
+
+const normalizeSpellingErrors = (errors) => {
+  if (!Array.isArray(errors)) {
+    return [];
+  }
+
+  return errors
+    .filter((e) => e && typeof e === "object")
+    .map((e) => ({
+      section: String(e.section || "General"),
+      wrong: String(e.wrong || ""),
+      correct: String(e.correct || ""),
+      context: String(e.context || ""),
+    }))
+    .filter((e) => e.wrong && e.correct)
+    .slice(0, 25);
 };
 
 const validateAnalysis = (raw, keywordResult) => {
-  const atsScore = clamp(Number(raw.atsScore) || 0, 0, 100);
-  const aiProbability = clamp(Number(raw.aiProbability) || 0, 0, 100);
-
-  const missingKeywords = Array.isArray(raw.missingKeywords)
-    ? raw.missingKeywords.map(String).filter(Boolean).slice(0, 15)
-    : [];
-
-  const suggestions = Array.isArray(raw.suggestions)
-    ? raw.suggestions.map(String).filter(Boolean).slice(0, 10)
-    : [];
-
-  const summary =
-    typeof raw.summary === "string" && raw.summary.trim()
-      ? raw.summary.trim()
-      : "Analysis completed.";
-
+  const aiAtsScore = clamp(Number(raw.atsScore) || 0, 0, 100);
   const keywordScore = keywordResult.score;
   const blendedAtsScore = Math.round(
-    atsScore * 0.65 + keywordScore * 0.35
+    aiAtsScore * 0.65 + keywordScore * 0.35
   );
 
-  const mergedMissing = [
+  const missingKeywords = [
     ...new Set([
-      ...missingKeywords,
+      ...toStringArray(raw.missingKeywords, 12),
       ...keywordResult.missing.slice(0, 12),
     ]),
   ].slice(0, 15);
@@ -137,38 +225,79 @@ const validateAnalysis = (raw, keywordResult) => {
   return {
     atsScore: blendedAtsScore,
     keywordMatchScore: keywordScore,
-    missingKeywords: mergedMissing,
-    suggestions,
-    summary,
-    aiProbability,
     matchedKeywords: keywordResult.matched.slice(0, 20),
+    missingKeywords,
+    suggestions: toStringArray(raw.suggestions, 10),
+    improvements: toStringArray(raw.improvements, 12),
+    summary:
+      typeof raw.summary === "string" && raw.summary.trim()
+        ? raw.summary.trim()
+        : "Analysis completed.",
+    description:
+      typeof raw.description === "string" && raw.description.trim()
+        ? raw.description.trim()
+        : "",
+    aiProbability: clamp(Number(raw.aiProbability) || 0, 0, 100),
+    spellingErrors: normalizeSpellingErrors(raw.spellingErrors),
+    sectionAnalysis: normalizeSectionAnalysis(raw.sectionAnalysis),
   };
 };
 
-const SYSTEM_PROMPT = `You are a strict Applicant Tracking System (ATS) resume analyzer used by recruiters.
+const buildPrompt = (resumeText, jobDescription, keywordResult) => `
+You are an expert ATS resume analyzer and career coach.
 
-Score the resume ONLY against the provided job description. Be objective and consistent.
+Analyze the resume against the job description. Be strict, objective, and section-wise.
 
-Scoring rubric (total 0-100):
-- Keyword & skills alignment (40%): required skills, tools, frameworks, certifications from the JD
-- Experience relevance (25%): years, seniority, domain, responsibilities match
-- Achievements & impact (15%): metrics, outcomes, quantified results
-- Resume structure & clarity (10%): sections (summary, experience, skills, education), readability
-- Formatting & ATS compatibility (10%): standard headings, no critical parsing issues
+SCORING RUBRIC (atsScore 0-100):
+- Keyword & skills alignment (40%)
+- Experience relevance (25%)
+- Achievements & impact (15%)
+- Resume structure & clarity (10%)
+- Formatting & ATS compatibility (10%)
 
-Rules:
-- atsScore: integer 0-100 reflecting the rubric above
-- aiProbability: integer 0-100 estimating how likely the resume text was AI-generated (0 = human, 100 = likely AI)
-- missingKeywords: up to 12 important JD terms/skills absent or weak in the resume
-- suggestions: up to 8 specific, actionable improvements tied to the JD
-- summary: 2-3 sentences for the candidate
-- Do not inflate scores; average resumes are 45-65, strong matches 70-85, exceptional 86+
-- Return ONLY valid JSON with keys: atsScore, missingKeywords, suggestions, summary, aiProbability`;
+Calibration: local keyword match is ${keywordResult.score}% (${keywordResult.matched.length} matched, ${keywordResult.missing.length} missing). Do not inflate scores; average resumes score 45-65, strong matches 70-85.
+
+REQUIRED OUTPUT:
+1. atsScore — overall ATS compatibility (integer 0-100)
+2. aiProbability — likelihood resume text is AI-generated (0=human, 100=likely AI)
+3. summary — 2-3 sentence overview for the candidate
+4. description — detailed paragraph explaining strengths, gaps vs job, and overall fit
+5. missingKeywords — important JD skills/terms missing or weak in resume (up to 12)
+6. suggestions — general actionable tips (up to 8)
+7. improvements — specific resume edits to increase ATS score (up to 12, be concrete)
+8. spellingErrors — list every spelling/grammar typo found with section, wrong word, correct word, and short context quote. If none, return empty array.
+9. sectionAnalysis — analyze EACH of these sections (include even if missing):
+   ${SECTION_NAMES.map((s) => `- ${s}`).join("\n   ")}
+   For each section provide: sectionName, score (0-100), status (good | needs_improvement | poor | missing), issues (problems/mistakes in that section), suggestions (how to fix that section)
+
+Job Description:
+${jobDescription.trim()}
+
+Resume:
+${resumeText.trim().slice(0, 14000)}
+`;
+
+const parseGeminiJson = (text) => {
+  let cleaned = (text || "").trim();
+  cleaned = cleaned
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    throw new Error("Gemini response did not contain valid JSON");
+  }
+
+  return JSON.parse(cleaned.substring(start, end + 1));
+};
 
 const analyzeResume = async (resumeText, jobDescription) => {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error(
-      "OPENAI_API_KEY is missing. Add it to server/.env — see README."
+      "GEMINI_API_KEY is missing. Add it to server/.env — get a free key at https://aistudio.google.com/apikey"
     );
   }
 
@@ -187,37 +316,28 @@ const analyzeResume = async (resumeText, jobDescription) => {
     jobDescription
   );
 
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+  const genAI = new GoogleGenerativeAI(
+    process.env.GEMINI_API_KEY
+  );
+
+  const modelName =
+    process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
+    },
   });
 
-  const model =
-    process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const result = await model.generateContent(
+    buildPrompt(resumeText, jobDescription, keywordResult)
+  );
 
-  const userPrompt = `Job Description:
-${jobDescription.trim()}
-
-Resume:
-${resumeText.trim().slice(0, 12000)}
-
-Deterministic keyword match from JD: ${keywordResult.score}% (${keywordResult.matched.length} matched, ${keywordResult.missing.length} missing).
-Use this as a calibration anchor; your atsScore should not differ by more than 20 points from keyword match unless experience/achievements strongly justify it.
-
-Return JSON only.`;
-
-  const completion = await openai.chat.completions.create({
-    model,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-  });
-
-  const content =
-    completion.choices[0]?.message?.content;
-  const parsed = parseAiJson(content);
+  const text = result.response.text();
+  const parsed = parseGeminiJson(text);
 
   return validateAnalysis(parsed, keywordResult);
 };
